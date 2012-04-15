@@ -1,0 +1,11 @@
+harfbuzz Windows binaries for XBMC
+To reproduce:
+
+git clone git://github.com/blinkseb/harfbuzz.git
+Open win32/harfbuzz.sln with Visual Studio.
+
+** READ README.md before trying to build ** 
+
+Build Release configuration
+
+Run xbmc\package.bat to produce the final archive
