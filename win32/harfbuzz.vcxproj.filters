@@ -134,6 +134,18 @@
     <ClCompile Include="..\src\hb-ot-shape-complex-thai.cc">
       <Filter>Fichiers sources</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\hb-buffer-serialize.cc">
+      <Filter>Fichiers sources</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\hb-ot-shape-complex-indic-table.cc">
+      <Filter>Fichiers sources</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\hb-ot-shape-complex-myanmar.cc">
+      <Filter>Fichiers sources</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\hb-ot-shape-complex-sea.cc">
+      <Filter>Fichiers sources</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\src\hb-buffer-private.hh">
