@@ -276,6 +276,7 @@ shape_options_t::add_options (option_parser_t *parser)
     {"preserve-default-ignorables",0, 0, G_OPTION_ARG_NONE,	&this->preserve_default_ignorables,	"Preserve Default-Ignorable characters",	NULL},
     {"utf8-clusters",	0, 0, G_OPTION_ARG_NONE,	&this->utf8_clusters,		"Use UTF8 byte indices, not char indices",	NULL},
     {"normalize-glyphs",0, 0, G_OPTION_ARG_NONE,	&this->normalize_glyphs,	"Rearrange glyph clusters in nominal order",	NULL},
+    {"num-iterations",	0, 0, G_OPTION_ARG_INT,		&this->num_iterations,		"Run shaper N times (default: 1)",	"N"},
     {NULL}
   };
   parser->add_group (entries,
@@ -413,8 +414,8 @@ font_options_t::get_font (void) const
       /* read it */
       GString *gs = g_string_new (NULL);
       char buf[BUFSIZ];
-#ifdef HAVE__SETMODE
-      _setmode (fileno (stdin), _O_BINARY);
+#if defined(_WIN32) || defined(__CYGWIN__)
+      setmode (fileno (stdin), _O_BINARY);
 #endif
       while (!feof (stdin)) {
 	size_t ret = fread (buf, 1, sizeof (buf), stdin);
@@ -557,8 +558,8 @@ output_options_t::get_file_handle (void)
   if (output_file)
     fp = fopen (output_file, "wb");
   else {
-#ifdef HAVE__SETMODE
-    _setmode (fileno (stdout), _O_BINARY);
+#if defined(_WIN32) || defined(__CYGWIN__)
+    setmode (fileno (stdout), _O_BINARY);
 #endif
     fp = stdout;
   }

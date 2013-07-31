@@ -1,3 +1,114 @@
+Overview of changes leading to 0.9.19
+Tuesday, July 16, 2013
+=====================================
+
+- Build fixes.
+- Better handling of multiple variation selectors in a row.
+- Pass on variation selector to GSUB if not consumed by cmap.
+- Fix undefined memory access.
+- Add Javanese config to Indic shaper.
+- Misc bug fixes.
+
+Overview of changes leading to 0.9.18
+Tuesday, May 28, 2013
+=====================================
+
+New build system:
+
+- All unneeded code is all disabled by default,
+
+- Uniscribe and CoreText shapers can be enabled with their --with options,
+
+- icu_le and old shapers cannot be enabled for now,
+
+- glib, freetype, and cairo will be detected automatically.
+  They can be force on/off'ed with their --with options,
+
+- icu and graphite2 are default off, can be enabled with their --with
+  options,
+
+Moreover, ICU support is now build into a separate library:
+libharfbuzz-icu.so, and a new harfbuzz-icu.pc is shipped for it.
+Distros can enable ICU now without every application on earth
+getting linked to via libharfbuzz.so.
+
+For distros I recommend that they make sure they are building --with-glib
+--with-freetype --with-cairo, --with-icu, and optionally --with-graphite2;
+And package harfbuzz and harfbuzz-icu separately.
+
+
+Overview of changes leading to 0.9.17
+Monday, May 20, 2013
+=====================================
+
+- Build fixes.
+- Fix bug in hb_set_get_min().
+- Fix regression with Arabic mark positioning / width-zeroing.
+
+Overview of changes leading to 0.9.16
+Friday, April 19, 2013
+=====================================
+
+- Major speedup in OpenType lookup processing.  With the Amiri
+  Arabic font, this release is over 3x faster than previous
+  release.  All scripts / languages should see this speedup.
+
+- New --num-iterations option for hb-shape / hb-view; useful for
+  profiling.
+
+Overview of changes leading to 0.9.15
+Friday, April 05, 2013
+=====================================
+
+- Build fixes.
+- Fix crasher in graphite2 shaper.
+- Fix Arabic mark width zeroing regression.
+- Don't compose Hangul jamo into Unicode syllables.
+
+
+Overview of changes leading to 0.9.14
+Thursday, March 21, 2013
+=====================================
+
+- Build fixes.
+- Fix time-consuming sanitize with malicious fonts.
+- Implement hb_buffer_deserialize_glyphs() for both json and text.
+- Do not ignore Hangul filler characters.
+- Indic fixes:
+  * Fix Malayalam pre-base reordering interaction with post-forms.
+  * Further adjust ZWJ handling.  Should fix known regressions from
+    0.9.13.
+
+
+Overview of changes leading to 0.9.13
+Thursday, February 25, 2013
+=====================================
+
+- Build fixes.
+- Ngapi HarfBuzz Hackfest in London (February 2013):
+  * Fixed all known Indic bugs,
+  * New Win8-style Myanmar shaper,
+  * New South-East Asian shaper for Tai Tham, Cham, and New Tai Lue,
+  * Smartly ignore Default_Ignorable characters (joiners, etc) wheb
+    matching GSUB/GPOS lookups,
+  * Fix 'Phags-Pa U+A872 shaping,
+  * Fix partial disabling of default-on features,
+  * Allow disabling of TrueType kerning.
+- Fix possible crasher with broken fonts with overlapping tables.
+- Removed generated files from git again.  So, one needs ragel to
+  bootstrap from the git tree.
+
+API changes:
+- hb_shape() and related APIs now abort if buffer direction is
+  HB_DIRECTION_INVALID.  Previously, hb_shape() was calling
+  hb_buffer_guess_segment_properties() on the buffer before
+  shaping.  The heuristics in that function are fragile.  If the
+  user really wants the old behvaior, they can call that function
+  right before calling hb_shape() to get the old behavior.
+- hb_blob_create_sub_blob() always creates sub-blob with
+  HB_MEMORY_MODE_READONLY.  See comments for the reason.
+
+
 Overview of changes leading to 0.9.12
 Thursday, January 18, 2013
 =====================================

@@ -30,10 +30,35 @@
 
 #include "hb-icu-le/PortableFontInstance.h"
 
-#include "layout/loengine.h"
-#include "unicode/unistr.h"
+#include <layout/LEScripts.h>
+#include <layout/loengine.h>
+#include <unicode/uscript.h>
+#include <unicode/unistr.h>
 
-#include "hb-icu.h"
+
+/* Duplicated here so we don't depend on hb-icu. */
+
+static hb_script_t
+_hb_icu_script_to_script (UScriptCode script)
+{
+  if (unlikely (script == USCRIPT_INVALID_CODE))
+    return HB_SCRIPT_INVALID;
+
+  return hb_script_from_string (uscript_getShortName (script), -1);
+}
+
+static UScriptCode
+_hb_icu_script_from_script (hb_script_t script)
+{
+  if (unlikely (script == HB_SCRIPT_INVALID))
+    return USCRIPT_INVALID_CODE;
+
+  for (unsigned int i = 0; i < USCRIPT_CODE_LIMIT; i++)
+    if (unlikely (_hb_icu_script_to_script ((UScriptCode) i) == script))
+      return (UScriptCode) i;
+
+  return USCRIPT_UNKNOWN;
+}
 
 
 /*
@@ -62,9 +87,13 @@ hb_icu_le_shaper_font_data_t *
 _hb_icu_le_shaper_font_data_create (hb_font_t *font)
 {
   LEErrorCode status = LE_NO_ERROR;
+  unsigned int x_ppem = font->x_ppem ? font->x_ppem : 72;
+  unsigned int y_ppem = font->y_ppem ? font->y_ppem : 72;
   hb_icu_le_shaper_font_data_t *data = new PortableFontInstance (font->face,
-								 font->x_scale,
-								 font->y_scale,
+								 font->x_scale / x_ppem,
+								 font->y_scale / y_ppem,
+								 x_ppem,
+								 y_ppem,
 								 status);
   if (status != LE_NO_ERROR) {
     delete (data);
@@ -113,7 +142,7 @@ _hb_icu_le_shape (hb_shape_plan_t    *shape_plan,
 		  unsigned int        num_features)
 {
   LEFontInstance *font_instance = HB_SHAPER_DATA_GET (font);
-  le_int32 script_code = hb_icu_script_from_script (shape_plan->props.script);
+  le_int32 script_code = _hb_icu_script_from_script (shape_plan->props.script);
   le_int32 language_code = -1 /* TODO */;
   le_int32 typography_flags = 3; /* Needed for ligatures and kerning */
   LEErrorCode status = LE_NO_ERROR;
@@ -130,25 +159,46 @@ retry:
   unsigned int scratch_size;
   char *scratch = (char *) buffer->get_scratch_buffer (&scratch_size);
 
+  LEUnicode *pchars = (LEUnicode *) scratch;
+  unsigned int chars_len = 0;
+  for (unsigned int i = 0; i < buffer->len; i++) {
+    hb_codepoint_t c = buffer->info[i].codepoint;
+    if (likely (c < 0x10000))
+      pchars[chars_len++] = c;
+    else if (unlikely (c >= 0x110000))
+      pchars[chars_len++] = 0xFFFD;
+    else {
+      pchars[chars_len++] = 0xD800 + ((c - 0x10000) >> 10);
+      pchars[chars_len++] = 0xDC00 + ((c - 0x10000) & ((1 << 10) - 1));
+    }
+  }
+
 #define ALLOCATE_ARRAY(Type, name, len) \
   Type *name = (Type *) scratch; \
   scratch += (len) * sizeof ((name)[0]); \
   scratch_size -= (len) * sizeof ((name)[0]);
 
-  ALLOCATE_ARRAY (LEUnicode, chars, buffer->len);
-  ALLOCATE_ARRAY (unsigned int, clusters, buffer->len);
+  ALLOCATE_ARRAY (LEUnicode, chars, chars_len);
+  ALLOCATE_ARRAY (unsigned int, clusters, chars_len);
 
-  /* XXX Use UTF-16 decoder! */
+  chars_len = 0;
   for (unsigned int i = 0; i < buffer->len; i++) {
-    chars[i] = buffer->info[i].codepoint;
-    clusters[i] = buffer->info[i].cluster;
+    hb_codepoint_t c = buffer->info[i].codepoint;
+    if (likely (c < 0x10000))
+      clusters[chars_len++] = buffer->info[i].cluster;
+    else if (unlikely (c >= 0x110000))
+      clusters[chars_len++] = buffer->info[i].cluster;
+    else {
+      clusters[chars_len++] = buffer->info[i].cluster;
+      clusters[chars_len++] = buffer->info[i].cluster;
+    }
   }
 
   unsigned int glyph_count = le_layoutChars (le,
 					     chars,
 					     0,
-					     buffer->len,
-					     buffer->len,
+					     chars_len,
+					     chars_len,
 					     HB_DIRECTION_IS_BACKWARD (buffer->props.direction),
 					     0., 0.,
 					     &status);

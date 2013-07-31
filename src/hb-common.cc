@@ -36,6 +36,24 @@
 #include <locale.h>
 
 
+/* hb_options_t */
+
+hb_options_union_t _hb_options;
+
+void
+_hb_options_init (void)
+{
+  hb_options_union_t u;
+  u.i = 0;
+  u.opts.initialized = 1;
+
+  char *c = getenv ("HB_OPTIONS");
+  u.opts.uniscribe_bug_compatible = c && strstr (c, "uniscribe-bug-compatible");
+
+  /* This is idempotent and threadsafe. */
+  _hb_options = u;
+}
+
 
 /* hb_tag_t */
 
@@ -225,8 +243,8 @@ hb_language_from_string (const char *str, int len)
   if (!str || !len || !*str)
     return HB_LANGUAGE_INVALID;
 
-  char strbuf[32];
   if (len >= 0) {
+    char strbuf[64];
     len = MIN (len, (int) sizeof (strbuf) - 1);
     str = (char *) memcpy (strbuf, str, len);
     strbuf[len] = '\0';
@@ -414,5 +432,3 @@ hb_version_check (unsigned int major,
 {
   return HB_VERSION_CHECK (major, minor, micro);
 }
-
-

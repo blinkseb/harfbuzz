@@ -53,14 +53,7 @@
  *
  *   - We don't handle / allow for emboldening / obliqueing.
  *
- *   - Rounding, etc?
- *
- *   - In the future, we should add constructors to create fonts in font space.
- *
- *   - I believe transforms are not correctly implemented.  FreeType does not
- *     provide any API to get to the transform/delta set on the face. :(
- *
- *   - Always use FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH?
+ *   - In the future, we should add constructors to create fonts in font space?
  *
  *   - FT_Load_Glyph() is exteremely costly.  Do something about it?
  */
@@ -80,8 +73,7 @@ hb_ft_get_glyph (hb_font_t *font HB_UNUSED,
 #ifdef HAVE_FT_FACE_GETCHARVARIANTINDEX
   if (unlikely (variation_selector)) {
     *glyph = FT_Face_GetCharVariantIndex (ft_face, unicode, variation_selector);
-    if (*glyph)
-      return true;
+    return *glyph != 0;
   }
 #endif
 
@@ -242,8 +234,8 @@ hb_ft_get_glyph_name (hb_font_t *font HB_UNUSED,
   FT_Face ft_face = (FT_Face) font_data;
 
   hb_bool_t ret = !FT_Get_Glyph_Name (ft_face, glyph, name, size);
-  if (!ret || (size && !*name))
-    snprintf (name, size, "gid%u", glyph);
+  if (ret && (size && !*name))
+    ret = false;
 
   return ret;
 }
@@ -266,6 +258,15 @@ hb_ft_get_glyph_from_name (hb_font_t *font HB_UNUSED,
     strncpy (buf, name, len);
     buf[len] = '\0';
     *glyph = FT_Get_Name_Index (ft_face, buf);
+  }
+
+  if (*glyph == 0)
+  {
+    /* Check whether the given name was actually the name of glyph 0. */
+    char buf[128];
+    if (!FT_Get_Glyph_Name(ft_face, 0, buf, sizeof (buf)) &&
+        len < 0 ? !strcmp (buf, name) : !strncmp (buf, name, len))
+      return true;
   }
 
   return *glyph != 0;

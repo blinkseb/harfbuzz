@@ -28,6 +28,7 @@ LOCAL_MODULE_TAGS := optional
 
 LOCAL_SRC_FILES:= \
 	src/hb-blob.cc \
+	src/hb-buffer-serialize.cc \
 	src/hb-buffer.cc \
 	src/hb-common.cc \
 	src/hb-fallback-shape.cc \
@@ -46,6 +47,9 @@ LOCAL_SRC_FILES:= \
 	src/hb-ot-shape-complex-arabic.cc \
 	src/hb-ot-shape-complex-default.cc \
 	src/hb-ot-shape-complex-indic.cc \
+	src/hb-ot-shape-complex-indic-table.cc \
+	src/hb-ot-shape-complex-myanmar.cc \
+	src/hb-ot-shape-complex-sea.cc \
 	src/hb-ot-shape-complex-thai.cc \
 	src/hb-ot-shape-normalize.cc \
 	src/hb-ot-shape-fallback.cc \

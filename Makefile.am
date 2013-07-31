@@ -6,9 +6,6 @@ ACLOCAL_AMFLAGS = -I m4
 
 SUBDIRS = src util test
 
-pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = harfbuzz.pc
-
 EXTRA_DIST = \
 	autogen.sh \
 	harfbuzz.doap \
@@ -16,27 +13,20 @@ EXTRA_DIST = \
 	$(NULL)
 
 MAINTAINERCLEANFILES = \
+	$(GITIGNORE_MAINTAINERCLEANFILES_TOPLEVEL) \
+	$(GITIGNORE_MAINTAINERCLEANFILES_M4_LIBTOOL) \
+	$(GITIGNORE_MAINTAINERCLEANFILES_MAKEFILE_IN) \
 	$(srcdir)/INSTALL \
-	$(srcdir)/aclocal.m4 \
-	$(srcdir)/autoscan.log \
-	$(srcdir)/compile \
-	$(srcdir)/config.guess \
-	$(srcdir)/config.sub \
-	$(srcdir)/configure.scan \
-	$(srcdir)/depcomp \
-	$(srcdir)/install-sh \
-	$(srcdir)/ltmain.sh \
-	$(srcdir)/missing \
-	$(srcdir)/mkinstalldirs \
 	$(srcdir)/ChangeLog \
-	`find "$(srcdir)" -type f -name Makefile.in -print`
+	$(NULL)
 
 
 #
 # ChangeLog generation
 #
 CHANGELOG_RANGE =
-ChangeLog:
+ChangeLog: $(srcdir)/ChangeLog
+$(srcdir)/ChangeLog:
 	$(AM_V_GEN) if test -d "$(top_srcdir)/.git"; then \
 	  (GIT_DIR=$(top_srcdir)/.git $(top_srcdir)/missing --run \
 	   git log $(CHANGELOG_RANGE) --stat) | fmt --split-only > $@.tmp \
@@ -49,7 +39,7 @@ ChangeLog:
 	  (echo A git checkout and git-log is required to generate ChangeLog >&2 && \
 	  echo A git checkout and git-log is required to generate this file >> "$(srcdir)/$@"); \
 	fi
-.PHONY: $(srcdir)/ChangeLog
+.PHONY: ChangeLog $(srcdir)/ChangeLog
 
 
 #

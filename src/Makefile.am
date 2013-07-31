@@ -20,7 +20,10 @@ HBLIBS =
 HBSOURCES =  \
 	hb-atomic-private.hh \
 	hb-blob.cc \
+	hb-buffer-deserialize-json.hh \
+	hb-buffer-deserialize-text.hh \
 	hb-buffer-private.hh \
+	hb-buffer-serialize.cc \
 	hb-buffer.cc \
 	hb-cache-private.hh \
 	hb-common.cc \
@@ -63,6 +66,8 @@ HBHEADERS = \
 	hb-shape.h \
 	hb-shape-plan.h \
 	hb-unicode.h \
+	$(NULL)
+HBNODISTHEADERS = \
 	hb-version.h \
 	$(NULL)
 
@@ -85,7 +90,11 @@ HBSOURCES += \
 	hb-ot-shape-complex-indic.cc \
 	hb-ot-shape-complex-indic-machine.hh \
 	hb-ot-shape-complex-indic-private.hh \
-	hb-ot-shape-complex-indic-table.hh \
+	hb-ot-shape-complex-indic-table.cc \
+	hb-ot-shape-complex-myanmar.cc \
+	hb-ot-shape-complex-myanmar-machine.hh \
+	hb-ot-shape-complex-sea.cc \
+	hb-ot-shape-complex-sea-machine.hh \
 	hb-ot-shape-complex-thai.cc \
 	hb-ot-shape-complex-private.hh \
 	hb-ot-shape-normalize-private.hh \
@@ -126,13 +135,6 @@ DISTCLEANFILES += hb-gobject-enums.cc
 hb-gobject-enums.cc: hb-gobject-enums.cc.tmpl $(HBHEADERS)
 	$(AM_V_GEN) $(GLIB_MKENUMS) --template $^ > "$@.tmp" && \
 	mv "$@.tmp" "$@" || ( $(RM) "@.tmp" && false )
-endif
-
-if HAVE_ICU
-HBCFLAGS += $(ICU_CFLAGS)
-HBLIBS   += $(ICU_LIBS)
-HBSOURCES += hb-icu.cc
-HBHEADERS += hb-icu.h
 endif
 
 if HAVE_FREETYPE
@@ -195,7 +197,7 @@ export_symbols = -export-symbols harfbuzz.def
 harfbuzz_def_dependency = harfbuzz.def
 libharfbuzz_la_LINK = $(CXXLINK) $(libharfbuzz_la_LDFLAGS)
 else
-if HAVE_ICU
+if HAVE_ICU_LE
 libharfbuzz_la_LINK = $(CXXLINK) $(libharfbuzz_la_LDFLAGS)
 else
 # Use a C linker for GCC, not C++; Don't link to libstdc++
@@ -207,17 +209,44 @@ endif
 endif
 endif
 
-libharfbuzz_la_SOURCES = $(HBSOURCES) $(HBHEADERS)
+libharfbuzz_la_SOURCES = $(HBSOURCES) $(HBHEADERS) $(HBNODISTHEADERS)
 nodist_libharfbuzz_la_SOURCES = $(nodist_HBSOURCES)
 libharfbuzz_la_CPPFLAGS = $(HBCFLAGS)
 libharfbuzz_la_LDFLAGS = $(AM_LDFLAGS) -version-info $(HB_LIBTOOL_VERSION_INFO) $(export_symbols) -no-undefined
 libharfbuzz_la_LIBADD = $(HBLIBS)
 EXTRA_libharfbuzz_la_DEPENDENCIES = $(harfbuzz_def_dependency)
 pkginclude_HEADERS = $(HBHEADERS)
-nodist_pkginclude_HEADERS = hb-version.h
+nodist_pkginclude_HEADERS = $(HBNODISTHEADERS)
+pkgconfigdir = $(libdir)/pkgconfig
+pkgconfig_DATA = harfbuzz.pc
+EXTRA_DIST += harfbuzz.pc.in
+
+if HAVE_ICU
+lib_LTLIBRARIES += libharfbuzz-icu.la
+libharfbuzz_icu_la_SOURCES = hb-icu.cc
+libharfbuzz_icu_la_CPPFLAGS = $(ICU_CFLAGS)
+libharfbuzz_icu_la_LDFLAGS = $(AM_LDFLAGS) -version-info $(HB_LIBTOOL_VERSION_INFO) -no-undefined
+libharfbuzz_icu_la_LIBADD = $(ICU_LIBS) libharfbuzz.la
+pkginclude_HEADERS += hb-icu.h
+pkgconfig_DATA += harfbuzz-icu.pc
+EXTRA_DIST += harfbuzz-icu.pc.in
+endif
+
+%.pc: %.pc.in $(top_builddir)/config.status
+	$(AM_V_GEN) \
+	$(SED)	-e 's@%prefix%@$(prefix)@g' \
+		-e 's@%exec_prefix%@$(exec_prefix)@g' \
+		-e 's@%libdir%@$(libdir)@g' \
+		-e 's@%includedir%@$(includedir)@g' \
+		-e 's@%VERSION%@$(VERSION)@g' \
+	"$<" \
+	> "$@.tmp" && mv "$@.tmp" "$@" || ( $(RM) "$@.tmp"; false )
+
+CLEANFILES += $(pkgconfig_DATA)
+
 
 CLEANFILES += harfbuzz.def
-harfbuzz.def: $(HBHEADERS)
+harfbuzz.def: $(HBHEADERS) $(HBNODISTHEADERS)
 	$(AM_V_GEN) (echo EXPORTS; \
 	(cat $^ || echo 'hb_ERROR ()' ) | \
 	$(EGREP) '^hb_.* \(' | \
@@ -238,9 +267,9 @@ EXTRA_DIST += $(GENERATORS)
 unicode-tables: arabic-table indic-table
 
 indic-table: gen-indic-table.py IndicSyllabicCategory.txt IndicMatraCategory.txt Blocks.txt
-	$(AM_V_GEN) $(builddir)/$^ > hb-ot-shape-complex-indic-table.hh.tmp && \
-	mv hb-ot-shape-complex-indic-table.hh.tmp $(srcdir)/hb-ot-shape-complex-indic-table.hh || \
-	($(RM) hb-ot-shape-complex-indic-table.hh.tmp; false)
+	$(AM_V_GEN) $(builddir)/$^ > hb-ot-shape-complex-indic-table.cc.tmp && \
+	mv hb-ot-shape-complex-indic-table.cc.tmp $(srcdir)/hb-ot-shape-complex-indic-table.cc || \
+	($(RM) hb-ot-shape-complex-indic-table.cc.tmp; false)
 
 arabic-table: gen-arabic-table.py ArabicShaping.txt UnicodeData.txt
 	$(AM_V_GEN) $(builddir)/$^ > hb-ot-shape-complex-arabic-table.hh.tmp && \
@@ -250,12 +279,31 @@ arabic-table: gen-arabic-table.py ArabicShaping.txt UnicodeData.txt
 
 .PHONY: unicode-tables arabic-table indic-table
 
-EXTRA_DIST += hb-ot-shape-complex-indic-machine.rl
-$(srcdir)/hb-ot-shape-complex-indic-machine.hh: hb-ot-shape-complex-indic-machine.rl
+BUILT_SOURCES += \
+	hb-buffer-deserialize-json.hh \
+	hb-buffer-deserialize-text.hh \
+	hb-ot-shape-complex-indic-machine.hh \
+	hb-ot-shape-complex-myanmar-machine.hh \
+	hb-ot-shape-complex-sea-machine.hh \
+	$(NULL)
+EXTRA_DIST += \
+	hb-buffer-deserialize-json.rl \
+	hb-buffer-deserialize-text.rl \
+	hb-ot-shape-complex-indic-machine.rl \
+	hb-ot-shape-complex-myanmar-machine.rl \
+	hb-ot-shape-complex-sea-machine.rl \
+	$(NULL)
+%.hh: %.rl
 	$(AM_V_GEN)$(top_srcdir)/missing --run ragel -e -F1 -o "$@.tmp" "$<" && \
 	mv "$@.tmp" "$@" || ( $(RM) "$@.tmp" && false )
 
-noinst_PROGRAMS = main test test-would-substitute test-size-params
+noinst_PROGRAMS = \
+	main \
+	test \
+	test-buffer-serialize \
+	test-size-params \
+	test-would-substitute \
+	$(NULL)
 bin_PROGRAMS =
 
 main_SOURCES = main.cc
@@ -274,22 +322,23 @@ test_size_params_SOURCES = test-size-params.cc
 test_size_params_CPPFLAGS = $(HBCFLAGS)
 test_size_params_LDADD = libharfbuzz.la $(HBLIBS)
 
+test_buffer_serialize_SOURCES = test-buffer-serialize.cc
+test_buffer_serialize_CPPFLAGS = $(HBCFLAGS)
+test_buffer_serialize_LDADD = libharfbuzz.la $(HBLIBS)
+
 dist_check_SCRIPTS = \
 	check-c-linkage-decls.sh \
 	check-header-guards.sh \
-	check-exported-symbols.sh \
 	check-includes.sh \
-	check-internal-symbols.sh \
+	check-symbols.sh \
 	$(NULL)
-
-if HAVE_ICU
-else
-dist_check_SCRIPTS += check-libstdc++.sh
-endif
 
 if HAVE_ICU_LE
 else
-dist_check_SCRIPTS += check-static-inits.sh
+dist_check_SCRIPTS += \
+	check-libstdc++.sh \
+	check-static-inits.sh \
+	$(NULL)
 endif
 
 TESTS = $(dist_check_SCRIPTS)
@@ -297,7 +346,7 @@ TESTS_ENVIRONMENT = \
 	srcdir="$(srcdir)" \
 	MAKE="$(MAKE) $(AM_MAKEFLAGS)" \
 	HBSOURCES="$(HBSOURCES)" \
-	HBHEADERS="$(HBHEADERS)" \
+	HBHEADERS="$(HBHEADERS) $(HBNODISTHEADERS)" \
 	$(NULL)
 
 #-include $(INTROSPECTION_MAKEFILE)
@@ -311,7 +360,7 @@ TESTS_ENVIRONMENT = \
 #hb_1_0_gir_INCLUDES = GObject-2.0
 #hb_1_0_gir_CFLAGS = $(INCLUDES) $(HBCFLAGS) -DHB_H -DHB_H_IN -DHB_OT_H -DHB_OT_H_IN
 #hb_1_0_gir_LIBS = libharfbuzz.la
-#hb_1_0_gir_FILES = $(HBHEADERS)
+#hb_1_0_gir_FILES = $(HBHEADERS) $(HBNODISTHEADERS)
 #
 #girdir = $(datadir)/gir-1.0
 #gir_DATA = $(INTROSPECTION_GIRS)

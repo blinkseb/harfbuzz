@@ -1,18 +1,19 @@
 AC_PREREQ([2.64])
 AC_INIT([HarfBuzz],
-        [0.9.12],
+        [0.9.19],
         [http://bugs.freedesktop.org/enter_bug.cgi?product=harfbuzz],
         [harfbuzz],
         [http://harfbuzz.org/])
 
 AC_CONFIG_MACRO_DIR([m4])
-AC_CONFIG_SRCDIR([harfbuzz.pc.in])
+AC_CONFIG_SRCDIR([src/harfbuzz.pc.in])
 AC_CONFIG_HEADERS([config.h])
 
-AM_INIT_AUTOMAKE([1.11.1 gnits dist-bzip2 no-dist-gzip -Wall no-define])
+AM_INIT_AUTOMAKE([1.11.1 gnits dist-bzip2 no-dist-gzip -Wall no-define color-tests -Wno-portability])
 AM_SILENT_RULES([yes])
 
 # Initialize libtool
+m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 LT_PREREQ([2.2])
 LT_INIT([disable-static])
 
@@ -55,8 +56,8 @@ dnl GOBJECT_INTROSPECTION_CHECK([0.9.0])
 dnl GTK_DOC_CHECK([1.15],[--flavour no-tmpl])
 
 # Functions and headers
-AC_CHECK_FUNCS(atexit mprotect sysconf getpagesize mmap _setmode isatty)
-AC_CHECK_HEADERS(unistd.h sys/mman.h io.h)
+AC_CHECK_FUNCS(atexit mprotect sysconf getpagesize mmap isatty)
+AC_CHECK_HEADERS(unistd.h sys/mman.h)
 
 # Compiler flags
 AC_CANONICAL_HOST
@@ -119,7 +120,7 @@ AM_CONDITIONAL(HAVE_OT, $have_ot)
 
 dnl ===========================================================================
 
-have_hb_old=true
+have_hb_old=false
 if $have_hb_old; then
 	AC_DEFINE(HAVE_HB_OLD, 1, [Have Old HarfBuzz backend])
 fi
@@ -127,27 +128,26 @@ AM_CONDITIONAL(HAVE_HB_OLD, $have_hb_old)
 
 dnl ===========================================================================
 
-have_ucdn=true
-if $have_ucdn; then
-	AC_DEFINE(HAVE_UCDN, 1, [Have UCDN Unicode functions])
+AC_ARG_WITH(glib,
+	[AS_HELP_STRING([--with-glib=@<:@yes/no/auto@:>@],
+			[Use glib @<:@default=auto@:>@])],,
+	[with_glib=auto])
+have_glib=false
+if test "x$with_glib" = "xyes" -o "x$with_glib" = "xauto"; then
+	PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.16, have_glib=true, :)
 fi
-AM_CONDITIONAL(HAVE_UCDN, $have_ucdn)
-
-dnl ===========================================================================
-
-PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.16, have_glib=true, have_glib=false)
+if test "x$with_glib" = "xyes" -a "x$have_glib" != "xtrue"; then
+	AC_MSG_ERROR([glib support requested but glib-2.0 not found])
+fi
 if $have_glib; then
 	AC_DEFINE(HAVE_GLIB, 1, [Have glib2 library])
 fi
 AM_CONDITIONAL(HAVE_GLIB, $have_glib)
 
-PKG_CHECK_MODULES(GTHREAD, gthread-2.0, have_gthread=true, have_gthread=false)
-if $have_gthread; then
-	AC_DEFINE(HAVE_GTHREAD, 1, [Have gthread2 library])
+have_gobject=false
+if $have_glib; then
+	PKG_CHECK_MODULES(GOBJECT, gobject-2.0 glib-2.0 >= 2.16, have_gobject=true, :)
 fi
-AM_CONDITIONAL(HAVE_GTHREAD, $have_gthread)
-
-PKG_CHECK_MODULES(GOBJECT, gobject-2.0 glib-2.0 >= 2.16, have_gobject=true, have_gobject=false)
 if $have_gobject; then
 	AC_DEFINE(HAVE_GOBJECT, 1, [Have gobject2 library])
 	GLIB_MKENUMS=`$PKG_CONFIG --variable=glib_mkenums glib-2.0`
@@ -155,15 +155,39 @@ if $have_gobject; then
 fi
 AM_CONDITIONAL(HAVE_GOBJECT, $have_gobject)
 
+dnl ===========================================================================
+
+have_ucdn=true
+if $have_glib; then
+	have_ucdn=false
+fi
+if $have_ucdn; then
+	AC_DEFINE(HAVE_UCDN, 1, [Have UCDN Unicode functions])
+fi
+AM_CONDITIONAL(HAVE_UCDN, $have_ucdn)
+
 dnl ==========================================================================
 
-PKG_CHECK_MODULES(CAIRO, cairo >= 1.8.0, have_cairo=true, have_cairo=false)
+AC_ARG_WITH(cairo,
+	[AS_HELP_STRING([--with-cairo=@<:@yes/no/auto@:>@],
+			[Use cairo @<:@default=auto@:>@])],,
+	[with_cairo=auto])
+have_cairo=false
+if test "x$with_cairo" = "xyes" -o "x$with_cairo" = "xauto"; then
+	PKG_CHECK_MODULES(CAIRO, cairo >= 1.8.0, have_cairo=true, :)
+fi
+if test "x$with_cairo" = "xyes" -a "x$have_cairo" != "xtrue"; then
+	AC_MSG_ERROR([cairo support requested but not found])
+fi
 if $have_cairo; then
 	AC_DEFINE(HAVE_CAIRO, 1, [Have cairo graphics library])
 fi
 AM_CONDITIONAL(HAVE_CAIRO, $have_cairo)
 
-PKG_CHECK_MODULES(CAIRO_FT, cairo-ft, have_cairo_ft=true, have_cairo_ft=false)
+have_cairo_ft=false
+if $have_cairo; then
+	PKG_CHECK_MODULES(CAIRO_FT, cairo-ft, have_cairo_ft=true, :)
+fi
 if $have_cairo_ft; then
 	AC_DEFINE(HAVE_CAIRO_FT, 1, [Have cairo-ft support in cairo graphics library])
 fi
@@ -171,7 +195,36 @@ AM_CONDITIONAL(HAVE_CAIRO_FT, $have_cairo_ft)
 
 dnl ==========================================================================
 
-PKG_CHECK_MODULES(ICU, icu-uc, have_icu=true, have_icu=false)
+AC_ARG_WITH(icu,
+	[AS_HELP_STRING([--with-icu=@<:@yes/no/auto@:>@],
+			[Use ICU @<:@default=auto@:>@])],,
+	[with_icu=auto])
+have_icu=false
+if test "x$with_icu" = "xyes" -o "x$with_icu" = "xauto"; then
+	PKG_CHECK_MODULES(ICU, icu-uc, have_icu=true, :)
+
+	dnl Fallback to icu-config if ICU pkg-config files could not be found
+	if test "$have_icu" != "true"; then
+		AC_CHECK_TOOL(ICU_CONFIG, icu-config, no)
+		AC_MSG_CHECKING([for ICU by using icu-config fallback])
+		if test "$ICU_CONFIG" != "no" && "$ICU_CONFIG" --version >/dev/null; then
+			have_icu=true
+			# We don't use --cflags as this gives us a lot of things that we don't
+			# necessarily want, like debugging and optimization flags
+			# See man (1) icu-config for more info.
+			ICU_CFLAGS=`$ICU_CONFIG --cppflags`
+			ICU_LIBS=`$ICU_CONFIG --ldflags-searchpath --ldflags-libsonly`
+			AC_SUBST(ICU_CFLAGS)
+			AC_SUBST(ICU_LIBS)
+			AC_MSG_RESULT([yes])
+		else
+			AC_MSG_RESULT([no])
+		fi
+	fi
+fi
+if test "x$with_icu" = "xyes" -a "x$have_icu" != "xtrue"; then
+	AC_MSG_ERROR([icu support requested but icu-uc not found])
+fi
 if $have_icu; then
 	CXXFLAGS="$CXXFLAGS `$PKG_CONFIG --variable=CXXFLAGS icu-uc`"
 	AC_DEFINE(HAVE_ICU, 1, [Have ICU library])
@@ -180,7 +233,8 @@ AM_CONDITIONAL(HAVE_ICU, $have_icu)
 
 dnl ==========================================================================
 
-PKG_CHECK_MODULES(ICU_LE, icu-le icu-uc, have_icu_le=true, have_icu_le=false)
+have_icu_le=false
+dnl PKG_CHECK_MODULES(ICU_LE, icu-le icu-uc, have_icu_le=true, :)
 if $have_icu_le; then
 	AC_DEFINE(HAVE_ICU_LE, 1, [Have ICU Layout Engine library])
 fi
@@ -188,15 +242,35 @@ AM_CONDITIONAL(HAVE_ICU_LE, $have_icu_le)
 
 dnl ==========================================================================
 
-PKG_CHECK_MODULES(GRAPHITE2, graphite2, have_graphite=true, have_graphite=false)
-if $have_graphite; then
-    AC_DEFINE(HAVE_GRAPHITE2, 1, [Have Graphite library])
+AC_ARG_WITH(graphite2,
+	[AS_HELP_STRING([--with-graphite2=@<:@yes/no/auto@:>@],
+			[Use the graphite2 library @<:@default=no@:>@])],,
+	[with_graphite2=no])
+have_graphite2=false
+if test "x$with_graphite2" = "xyes" -o "x$with_graphite2" = "xauto"; then
+	PKG_CHECK_MODULES(GRAPHITE2, graphite2, have_graphite2=true, :)
 fi
-AM_CONDITIONAL(HAVE_GRAPHITE2, $have_graphite)
+if test "x$with_graphite2" = "xyes" -a "x$have_graphite2" != "xtrue"; then
+	AC_MSG_ERROR([graphite2 support requested but libgraphite2 not found])
+fi
+if $have_graphite2; then
+    AC_DEFINE(HAVE_GRAPHITE2, 1, [Have Graphite2 library])
+fi
+AM_CONDITIONAL(HAVE_GRAPHITE2, $have_graphite2)
 
 dnl ==========================================================================
 
-PKG_CHECK_MODULES(FREETYPE, freetype2 >= 2.3.8, have_freetype=true, have_freetype=false)
+AC_ARG_WITH(freetype,
+	[AS_HELP_STRING([--with-freetype=@<:@yes/no/auto@:>@],
+			[Use the FreeType library @<:@default=auto@:>@])],,
+	[with_freetype=auto])
+have_freetype=false
+if test "x$with_freetype" = "xyes" -o "x$with_freetype" = "xauto"; then
+	PKG_CHECK_MODULES(FREETYPE, freetype2 >= 2.3.8, have_freetype=true, :)
+fi
+if test "x$with_freetype" = "xyes" -a "x$have_freetype" != "xtrue"; then
+	AC_MSG_ERROR([FreeType support requested but libfreetype2 not found])
+fi
 if $have_freetype; then
 	AC_DEFINE(HAVE_FREETYPE, 1, [Have FreeType 2 library])
 	_save_libs="$LIBS"
@@ -211,31 +285,39 @@ AM_CONDITIONAL(HAVE_FREETYPE, $have_freetype)
 
 dnl ===========================================================================
 
-AC_MSG_CHECKING([for ScriptShapeOpenType in usp10])
-saved_LIBS=$LIBS
-LIBS="$LIBS -lusp10 -lgdi32"
-AC_LINK_IFELSE([AC_LANG_PROGRAM(
-	[[
-	 #define _WIN32_WINNT 0x0600
-	 #include <windows.h>
-	 #include <usp10.h>
-	 ]],
-	ScriptShapeOpenType)],
-	[have_uniscribe=true; AC_MSG_RESULT(yes)],
-	[have_uniscribe=false;AC_MSG_RESULT(no)])
-LIBS=$saved_LIBS
+AC_ARG_WITH(uniscribe,
+	[AS_HELP_STRING([--with-uniscribe=@<:@yes/no/auto@:>@],
+			[Use the Uniscribe library @<:@default=no@:>@])],,
+	[with_uniscribe=no])
+have_uniscribe=false
+if test "x$with_uniscribe" = "xyes" -o "x$with_uniscribe" = "xauto"; then
+	AC_CHECK_HEADERS(usp10.h windows.h, have_uniscribe=true)
+fi
+if test "x$with_uniscribe" = "xyes" -a "x$have_uniscribe" != "xtrue"; then
+	AC_MSG_ERROR([uniscribe support requested but not found])
+fi
 if $have_uniscribe; then
 	UNISCRIBE_CFLAGS=
-	UNISCRIBE_LIBS="-lusp10 -lgdi32"
+	UNISCRIBE_LIBS="-lusp10 -lgdi32 -lrpcrt4"
 	AC_SUBST(UNISCRIBE_CFLAGS)
 	AC_SUBST(UNISCRIBE_LIBS)
-	AC_DEFINE(HAVE_UNISCRIBE, 1, [Have Uniscribe backend])
+	AC_DEFINE(HAVE_UNISCRIBE, 1, [Have Uniscribe library])
 fi
 AM_CONDITIONAL(HAVE_UNISCRIBE, $have_uniscribe)
 
 dnl ===========================================================================
 
-AC_CHECK_TYPE(CTFontRef, have_coretext=true, have_coretext=false, [#include <ApplicationServices/ApplicationServices.h>])
+AC_ARG_WITH(coretext,
+	[AS_HELP_STRING([--with-coretext=@<:@yes/no/auto@:>@],
+			[Use CoreText @<:@default=no@:>@])],,
+	[with_coretext=no])
+have_coretext=false
+if test "x$with_coretext" = "xyes" -o "x$with_coretext" = "xauto"; then
+	AC_CHECK_TYPE(CTFontRef, have_coretext=true,, [#include <ApplicationServices/ApplicationServices.h>])
+fi
+if test "x$with_coretext" = "xyes" -a "x$have_coretext" != "xtrue"; then
+	AC_MSG_ERROR([CoreText support requested but libcoretext not found])
+fi
 if $have_coretext; then
 	CORETEXT_CFLAGS=
 	CORETEXT_LIBS="-framework ApplicationServices"
@@ -288,7 +370,6 @@ dnl ===========================================================================
 
 AC_CONFIG_FILES([
 Makefile
-harfbuzz.pc
 src/Makefile
 src/hb-version.h
 src/hb-icu-le/Makefile
@@ -318,7 +399,7 @@ Tools used for command-line utilities:
 	Cairo:			${have_cairo}
 
 Additional shapers (the more the better):
-	Graphite2:		${have_graphite}
+	Graphite2:		${have_graphite2}
 
 Test / platform shapers (not normally needed):
 	CoreText:		${have_coretext}

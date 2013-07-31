@@ -1,6 +1,6 @@
 /*
  * Copyright © 2009,2010  Red Hat, Inc.
- * Copyright © 2010,2011  Google, Inc.
+ * Copyright © 2010,2011,2013  Google, Inc.
  *
  *  This is part of HarfBuzz, a text shaping library.
  *
@@ -28,12 +28,15 @@
 
 #include "hb-ot-map-private.hh"
 
+#include "hb-ot-layout-private.hh"
+
 
 void
 hb_ot_map_t::add_lookups (hb_face_t    *face,
 			  unsigned int  table_index,
 			  unsigned int  feature_index,
-			  hb_mask_t     mask)
+			  hb_mask_t     mask,
+			  bool          auto_zwj)
 {
   unsigned int lookup_indices[32];
   unsigned int offset, len;
@@ -53,6 +56,7 @@ hb_ot_map_t::add_lookups (hb_face_t    *face,
         return;
       lookup->mask = mask;
       lookup->index = lookup_indices[i];
+      lookup->auto_zwj = auto_zwj;
     }
 
     offset += len;
@@ -84,59 +88,20 @@ hb_ot_map_builder_t::hb_ot_map_builder_t (hb_face_t *face_,
   }
 }
 
-void hb_ot_map_builder_t::add_feature (hb_tag_t tag, unsigned int value, bool global, bool has_fallback)
+void hb_ot_map_builder_t::add_feature (hb_tag_t tag, unsigned int value,
+				       hb_ot_map_feature_flags_t flags)
 {
   feature_info_t *info = feature_infos.push();
   if (unlikely (!info)) return;
   info->tag = tag;
   info->seq = feature_infos.len;
   info->max_value = value;
-  info->global = global;
-  info->has_fallback = has_fallback;
-  info->default_value = global ? value : 0;
+  info->flags = flags;
+  info->default_value = (flags & F_GLOBAL) ? value : 0;
   info->stage[0] = current_stage[0];
   info->stage[1] = current_stage[1];
 }
 
-/* Keep the next two functions in sync. */
-
-void hb_ot_map_t::substitute (const hb_ot_shape_plan_t *plan, hb_font_t *font, hb_buffer_t *buffer) const
-{
-  const unsigned int table_index = 0;
-  unsigned int i = 0;
-
-  for (unsigned int pause_index = 0; pause_index < pauses[table_index].len; pause_index++) {
-    const pause_map_t *pause = &pauses[table_index][pause_index];
-    for (; i < pause->num_lookups; i++)
-      hb_ot_layout_substitute_lookup (font, buffer, lookups[table_index][i].index, lookups[table_index][i].mask);
-
-    buffer->clear_output ();
-
-    if (pause->callback)
-      pause->callback (plan, font, buffer);
-  }
-
-  for (; i < lookups[table_index].len; i++)
-    hb_ot_layout_substitute_lookup (font, buffer, lookups[table_index][i].index, lookups[table_index][i].mask);
-}
-
-void hb_ot_map_t::position (const hb_ot_shape_plan_t *plan, hb_font_t *font, hb_buffer_t *buffer) const
-{
-  const unsigned int table_index = 1;
-  unsigned int i = 0;
-
-  for (unsigned int pause_index = 0; pause_index < pauses[table_index].len; pause_index++) {
-    const pause_map_t *pause = &pauses[table_index][pause_index];
-    for (; i < pause->num_lookups; i++)
-      hb_ot_layout_position_lookup (font, buffer, lookups[table_index][i].index, lookups[table_index][i].mask);
-
-    if (pause->callback)
-      pause->callback (plan, font, buffer);
-  }
-
-  for (; i < lookups[table_index].len; i++)
-    hb_ot_layout_position_lookup (font, buffer, lookups[table_index][i].index, lookups[table_index][i].mask);
-}
 
 void hb_ot_map_t::collect_lookups (unsigned int table_index, hb_set_t *lookups_out) const
 {
@@ -146,10 +111,10 @@ void hb_ot_map_t::collect_lookups (unsigned int table_index, hb_set_t *lookups_o
 
 void hb_ot_map_builder_t::add_pause (unsigned int table_index, hb_ot_map_t::pause_func_t pause_func)
 {
-  pause_info_t *p = pauses[table_index].push ();
-  if (likely (p)) {
-    p->stage = current_stage[table_index];
-    p->callback = pause_func;
+  stage_info_t *s = stages[table_index].push ();
+  if (likely (s)) {
+    s->index = current_stage[table_index];
+    s->pause_func = pause_func;
   }
 
   current_stage[table_index]++;
@@ -176,18 +141,18 @@ hb_ot_map_builder_t::compile (hb_ot_map_t &m)
       if (feature_infos[i].tag != feature_infos[j].tag)
 	feature_infos[++j] = feature_infos[i];
       else {
-	if (feature_infos[i].global) {
-	  feature_infos[j].global = true;
+	if (feature_infos[i].flags & F_GLOBAL) {
+	  feature_infos[j].flags |= F_GLOBAL;
 	  feature_infos[j].max_value = feature_infos[i].max_value;
 	  feature_infos[j].default_value = feature_infos[i].default_value;
 	} else {
-	  feature_infos[j].global = false;
+	  feature_infos[j].flags &= ~F_GLOBAL;
 	  feature_infos[j].max_value = MAX (feature_infos[j].max_value, feature_infos[i].max_value);
+	  /* Inherit default_value from j */
 	}
-	feature_infos[j].has_fallback = feature_infos[j].has_fallback || feature_infos[i].has_fallback;
+	feature_infos[j].flags |= (feature_infos[i].flags & F_HAS_FALLBACK);
 	feature_infos[j].stage[0] = MIN (feature_infos[j].stage[0], feature_infos[i].stage[0]);
 	feature_infos[j].stage[1] = MIN (feature_infos[j].stage[1], feature_infos[i].stage[1]);
-	/* Inherit default_value from j */
       }
     feature_infos.shrink (j + 1);
   }
@@ -200,7 +165,7 @@ hb_ot_map_builder_t::compile (hb_ot_map_t &m)
 
     unsigned int bits_needed;
 
-    if (info->global && info->max_value == 1)
+    if ((info->flags & F_GLOBAL) && info->max_value == 1)
       /* Uses the global bit */
       bits_needed = 0;
     else
@@ -219,7 +184,7 @@ hb_ot_map_builder_t::compile (hb_ot_map_t &m)
 						   language_index[table_index],
 						   info->tag,
 						   &feature_index[table_index]);
-    if (!found && !info->has_fallback)
+    if (!found && !(info->flags & F_HAS_FALLBACK))
       continue;
 
 
@@ -232,7 +197,8 @@ hb_ot_map_builder_t::compile (hb_ot_map_t &m)
     map->index[1] = feature_index[1];
     map->stage[0] = info->stage[0];
     map->stage[1] = info->stage[1];
-    if (info->global && info->max_value == 1) {
+    map->auto_zwj = !(info->flags & F_MANUAL_ZWJ);
+    if ((info->flags & F_GLOBAL) && info->max_value == 1) {
       /* Uses the global bit */
       map->shift = 0;
       map->mask = 1;
@@ -240,8 +206,7 @@ hb_ot_map_builder_t::compile (hb_ot_map_t &m)
       map->shift = next_bit;
       map->mask = (1 << (next_bit + bits_needed)) - (1 << next_bit);
       next_bit += bits_needed;
-      if (info->global)
-	m.global_mask |= (info->default_value << map->shift) & map->mask;
+      m.global_mask |= (info->default_value << map->shift) & map->mask;
     }
     map->_1_mask = (1 << map->shift) & map->mask;
     map->needs_fallback = !found;
@@ -264,15 +229,18 @@ hb_ot_map_builder_t::compile (hb_ot_map_t &m)
 							  script_index[table_index],
 							  language_index[table_index],
 							  &required_feature_index))
-      m.add_lookups (face, table_index, required_feature_index, 1);
+      m.add_lookups (face, table_index, required_feature_index, 1, true);
 
-    unsigned int pause_index = 0;
+    unsigned int stage_index = 0;
     unsigned int last_num_lookups = 0;
     for (unsigned stage = 0; stage < current_stage[table_index]; stage++)
     {
       for (unsigned i = 0; i < m.features.len; i++)
         if (m.features[i].stage[table_index] == stage)
-	  m.add_lookups (face, table_index, m.features[i].index[table_index], m.features[i].mask);
+	  m.add_lookups (face, table_index,
+			 m.features[i].index[table_index],
+			 m.features[i].mask,
+			 m.features[i].auto_zwj);
 
       /* Sort lookups and merge duplicates */
       if (last_num_lookups < m.lookups[table_index].len)
@@ -284,20 +252,23 @@ hb_ot_map_builder_t::compile (hb_ot_map_t &m)
 	  if (m.lookups[table_index][i].index != m.lookups[table_index][j].index)
 	    m.lookups[table_index][++j] = m.lookups[table_index][i];
 	  else
+	  {
 	    m.lookups[table_index][j].mask |= m.lookups[table_index][i].mask;
+	    m.lookups[table_index][j].auto_zwj &= m.lookups[table_index][i].auto_zwj;
+	  }
 	m.lookups[table_index].shrink (j + 1);
       }
 
       last_num_lookups = m.lookups[table_index].len;
 
-      if (pause_index < pauses[table_index].len && pauses[table_index][pause_index].stage == stage) {
-	hb_ot_map_t::pause_map_t *pause_map = m.pauses[table_index].push ();
-	if (likely (pause_map)) {
-	  pause_map->num_lookups = last_num_lookups;
-	  pause_map->callback = pauses[table_index][pause_index].callback;
+      if (stage_index < stages[table_index].len && stages[table_index][stage_index].index == stage) {
+	hb_ot_map_t::stage_map_t *stage_map = m.stages[table_index].push ();
+	if (likely (stage_map)) {
+	  stage_map->last_lookup = last_num_lookups;
+	  stage_map->pause_func = stages[table_index][stage_index].pause_func;
 	}
 
-	pause_index++;
+	stage_index++;
       }
     }
   }

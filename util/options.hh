@@ -43,8 +43,8 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h> /* for isatty() */
 #endif
-#ifdef HAVE_IO_H
-#include <io.h> /* for _setmode() under Windows */
+#if defined(_WIN32) || defined(__CYGWIN__)
+#include <io.h> /* for setmode() under Windows */
 #endif
 
 #include <hb.h>
@@ -150,6 +150,7 @@ struct shape_options_t : option_group_t
     shapers = NULL;
     utf8_clusters = false;
     normalize_glyphs = false;
+    num_iterations = 1;
 
     add_options (parser);
   }
@@ -170,6 +171,7 @@ struct shape_options_t : option_group_t
 			 (bot ? HB_BUFFER_FLAG_BOT : 0) |
 			 (eot ? HB_BUFFER_FLAG_EOT : 0) |
 			 (preserve_default_ignorables ? HB_BUFFER_FLAG_PRESERVE_DEFAULT_IGNORABLES : 0)));
+    hb_buffer_guess_segment_properties (buffer);
   }
 
   void populate_buffer (hb_buffer_t *buffer, const char *text, int text_len,
@@ -233,6 +235,7 @@ struct shape_options_t : option_group_t
   char **shapers;
   hb_bool_t utf8_clusters;
   hb_bool_t normalize_glyphs;
+  unsigned int num_iterations;
 };
 
 

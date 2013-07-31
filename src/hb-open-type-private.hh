@@ -171,6 +171,10 @@ ASSERT_STATIC (Type::min_size + 1 <= sizeof (_Null##Type))
 	(&c->debug_depth, c->get_name (), this, HB_FUNC, \
 	 "");
 
+/* This limits sanitizing time on really broken fonts. */
+#ifndef HB_SANITIZE_MAX_EDITS
+#define HB_SANITIZE_MAX_EDITS 100
+#endif
 
 struct hb_sanitize_context_t
 {
@@ -178,7 +182,7 @@ struct hb_sanitize_context_t
   static const unsigned int max_debug_depth = HB_DEBUG_SANITIZE;
   typedef bool return_t;
   template <typename T>
-  inline return_t process (const T &obj) { return obj.sanitize (this); }
+  inline return_t dispatch (const T &obj) { return obj.sanitize (this); }
   static return_t default_return_value (void) { return true; }
   bool stop_sublookup_iteration (const return_t r HB_UNUSED) const { return false; }
 
@@ -247,6 +251,9 @@ struct hb_sanitize_context_t
 
   inline bool may_edit (const void *base HB_UNUSED, unsigned int len HB_UNUSED)
   {
+    if (this->edit_count >= HB_SANITIZE_MAX_EDITS)
+      return false;
+
     const char *p = (const char *) base;
     this->edit_count++;
 
@@ -404,7 +411,7 @@ struct hb_serialize_context_t
   template <typename Type>
   inline Type *allocate_size (unsigned int size)
   {
-    if (unlikely (this->ran_out_of_room || this->end - this->head < size)) {
+    if (unlikely (this->ran_out_of_room || this->end - this->head < ptrdiff_t (size))) {
       this->ran_out_of_room = true;
       return NULL;
     }
@@ -635,15 +642,21 @@ struct LongOffset : ULONG
 /* CheckSum */
 struct CheckSum : ULONG
 {
-  static uint32_t CalcTableChecksum (ULONG *Table, uint32_t Length)
+  /* This is reference implementation from the spec. */
+  static inline uint32_t CalcTableChecksum (const ULONG *Table, uint32_t Length)
   {
     uint32_t Sum = 0L;
-    ULONG *EndPtr = Table+((Length+3) & ~3) / ULONG::static_size;
+    const ULONG *EndPtr = Table+((Length+3) & ~3) / ULONG::static_size;
 
     while (Table < EndPtr)
       Sum += *Table++;
     return Sum;
   }
+
+  /* Note: data should be 4byte aligned and have 4byte padding at the end. */
+  inline void set_for_data (const void *data, unsigned int length)
+  { set (CalcTableChecksum ((const ULONG *) data, length)); }
+
   public:
   DEFINE_SIZE_STATIC (4);
 };
@@ -682,11 +695,6 @@ struct GenericOffsetTo : OffsetType
   {
     unsigned int offset = *this;
     if (unlikely (!offset)) return Null(Type);
-    return StructAtOffset<Type> (base, offset);
-  }
-  inline Type& operator () (void *base)
-  {
-    unsigned int offset = *this;
     return StructAtOffset<Type> (base, offset);
   }
 
@@ -947,21 +955,22 @@ template <typename Type>
 struct SortedArrayOf : ArrayOf<Type> {
 
   template <typename SearchType>
-  inline int search (const SearchType &x) const {
-    unsigned int count = this->len;
-    /* Linear search is *much* faster for small counts. */
-    if (likely (count < 32)) {
-      for (unsigned int i = 0; i < count; i++)
-	if (this->array[i].cmp (x) == 0)
-	  return i;
-      return -1;
-    } else {
-      struct Cmp {
-	static int cmp (const SearchType *a, const Type *b) { return b->cmp (*a); }
-      };
-      const Type *p = (const Type *) bsearch (&x, this->array, this->len, sizeof (this->array[0]), (hb_compare_func_t) Cmp::cmp);
-      return p ? p - this->array : -1;
+  inline int search (const SearchType &x) const
+  {
+    /* Hand-coded bsearch here since this is in the hot inner loop. */
+    int min = 0, max = (int) this->len - 1;
+    while (min <= max)
+    {
+      int mid = (min + max) / 2;
+      int c = this->array[mid].cmp (x);
+      if (c < 0)
+        max = mid - 1;
+      else if (c > 0)
+        min = mid + 1;
+      else
+        return mid;
     }
+    return -1;
   }
 };
 
