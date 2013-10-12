@@ -14,6 +14,7 @@
     <ClInclude Include="..\src\hb-blob.h" />
     <ClInclude Include="..\src\hb-buffer.h" />
     <ClInclude Include="..\src\hb-common.h" />
+    <ClInclude Include="..\src\hb-face.h" />
     <ClInclude Include="..\src\hb-font.h" />
     <ClInclude Include="..\src\hb-ft.h" />
     <ClInclude Include="..\src\hb-ot-layout.h" />
@@ -32,6 +33,7 @@
     <ClCompile Include="..\src\hb-buffer-serialize.cc" />
     <ClCompile Include="..\src\hb-buffer.cc" />
     <ClCompile Include="..\src\hb-common.cc" />
+    <ClCompile Include="..\src\hb-face.cc" />
     <ClCompile Include="..\src\hb-fallback-shape.cc" />
     <ClCompile Include="..\src\hb-font.cc" />
     <ClCompile Include="..\src\hb-ft.cc" />
