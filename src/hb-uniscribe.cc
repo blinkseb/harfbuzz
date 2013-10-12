@@ -1,5 +1,5 @@
 /*
- * Copyright © 2011,2012  Google, Inc.
+ * Copyright © 2011,2012,2013  Google, Inc.
  *
  *  This is part of HarfBuzz, a text shaping library.
  *
@@ -203,7 +203,7 @@ struct hb_uniscribe_shaper_funcs_t {
     this->ScriptShapeOpenType   = NULL;
     this->ScriptPlaceOpenType   = NULL;
 
-    hinstLib = GetModuleHandle(TEXT("usp10.dll"));
+    hinstLib = GetModuleHandle (TEXT ("usp10.dll"));
     if (hinstLib)
     {
       this->ScriptItemizeOpenType = (SIOT) GetProcAddress (hinstLib, "ScriptItemizeOpenType");
@@ -228,7 +228,6 @@ free_uniscribe_funcs (void)
 {
   free (uniscribe_funcs);
 }
-
 
 static hb_uniscribe_shaper_funcs_t *
 hb_uniscribe_shaper_get_funcs (void)
@@ -257,6 +256,39 @@ retry:
   return funcs;
 }
 
+
+struct active_feature_t {
+  OPENTYPE_FEATURE_RECORD rec;
+  unsigned int order;
+
+  static int cmp (const active_feature_t *a, const active_feature_t *b) {
+    return a->rec.tagFeature < b->rec.tagFeature ? -1 : a->rec.tagFeature > b->rec.tagFeature ? 1 :
+	   a->order < b->order ? -1 : a->order > b->order ? 1 :
+	   a->rec.lParameter < b->rec.lParameter ? -1 : a->rec.lParameter > b->rec.lParameter ? 1 :
+	   0;
+  }
+  bool operator== (const active_feature_t *f) {
+    return cmp (this, f) == 0;
+  }
+};
+
+struct feature_event_t {
+  unsigned int index;
+  bool start;
+  active_feature_t feature;
+
+  static int cmp (const feature_event_t *a, const feature_event_t *b) {
+    return a->index < b->index ? -1 : a->index > b->index ? 1 :
+	   a->start < b->start ? -1 : a->start > b->start ? 1 :
+	   active_feature_t::cmp (&a->feature, &b->feature);
+  }
+};
+
+struct range_record_t {
+  TEXTRANGE_PROPERTIES props;
+  unsigned int index_first; /* == start */
+  unsigned int index_last;  /* == end - 1 */
+};
 
 HB_SHAPER_DATA_ENSURE_DECLARE(uniscribe, face)
 HB_SHAPER_DATA_ENSURE_DECLARE(uniscribe, font)
@@ -567,6 +599,125 @@ _hb_uniscribe_shape (hb_shape_plan_t    *shape_plan,
   hb_uniscribe_shaper_font_data_t *font_data = HB_SHAPER_DATA_GET (font);
   hb_uniscribe_shaper_funcs_t *funcs = face_data->funcs;
 
+  /*
+   * Set up features.
+   */
+  hb_auto_array_t<OPENTYPE_FEATURE_RECORD> feature_records;
+  hb_auto_array_t<range_record_t> range_records;
+  if (num_features)
+  {
+    /* Sort features by start/end events. */
+    hb_auto_array_t<feature_event_t> feature_events;
+    for (unsigned int i = 0; i < num_features; i++)
+    {
+      active_feature_t feature;
+      feature.rec.tagFeature = hb_uint32_swap (features[i].tag);
+      feature.rec.lParameter = features[i].value;
+      feature.order = i;
+
+      feature_event_t *event;
+
+      event = feature_events.push ();
+      if (unlikely (!event))
+	goto fail_features;
+      event->index = features[i].start;
+      event->start = true;
+      event->feature = feature;
+
+      event = feature_events.push ();
+      if (unlikely (!event))
+	goto fail_features;
+      event->index = features[i].end;
+      event->start = false;
+      event->feature = feature;
+    }
+    feature_events.sort ();
+    /* Add a strategic final event. */
+    {
+      active_feature_t feature;
+      feature.rec.tagFeature = 0;
+      feature.rec.lParameter = 0;
+      feature.order = num_features + 1;
+
+      feature_event_t *event = feature_events.push ();
+      if (unlikely (!event))
+	goto fail_features;
+      event->index = 0; /* This value does magic. */
+      event->start = false;
+      event->feature = feature;
+    }
+
+    /* Scan events and save features for each range. */
+    hb_auto_array_t<active_feature_t> active_features;
+    unsigned int last_index = 0;
+    for (unsigned int i = 0; i < feature_events.len; i++)
+    {
+      feature_event_t *event = &feature_events[i];
+
+      if (event->index != last_index)
+      {
+        /* Save a snapshot of active features and the range. */
+	range_record_t *range = range_records.push ();
+	if (unlikely (!range))
+	  goto fail_features;
+
+	unsigned int offset = feature_records.len;
+
+	active_features.sort ();
+	for (unsigned int j = 0; j < active_features.len; j++)
+	{
+	  if (!j || active_features[j].rec.tagFeature != feature_records[feature_records.len - 1].tagFeature)
+	  {
+	    OPENTYPE_FEATURE_RECORD *feature = feature_records.push ();
+	    if (unlikely (!feature))
+	      goto fail_features;
+	    *feature = active_features[j].rec;
+	  }
+	  else
+	  {
+	    /* Overrides value for existing feature. */
+	    feature_records[feature_records.len - 1].lParameter = active_features[j].rec.lParameter;
+	  }
+	}
+
+	/* Will convert to pointer after all is ready, since feature_records.array
+	 * may move as we grow it. */
+	range->props.potfRecords = reinterpret_cast<OPENTYPE_FEATURE_RECORD *> (offset);
+	range->props.cotfRecords = feature_records.len - offset;
+	range->index_first = last_index;
+	range->index_last  = event->index - 1;
+
+	last_index = event->index;
+      }
+
+      if (event->start) {
+        active_feature_t *feature = active_features.push ();
+	if (unlikely (!feature))
+	  goto fail_features;
+	*feature = event->feature;
+      } else {
+        active_feature_t *feature = active_features.find (&event->feature);
+	if (feature)
+	  active_features.remove (feature - active_features.array);
+      }
+    }
+
+    if (!range_records.len) /* No active feature found. */
+      goto fail_features;
+
+    /* Fixup the pointers. */
+    for (unsigned int i = 0; i < range_records.len; i++)
+    {
+      range_record_t *range = &range_records[i];
+      range->props.potfRecords = feature_records.array + reinterpret_cast<unsigned int> (range->props.potfRecords);
+    }
+  }
+  else
+  {
+  fail_features:
+    num_features = 0;
+  }
+
 #define FAIL(...) \
   HB_STMT_START { \
     DEBUG_MSG (UNISCRIBE, NULL, __VA_ARGS__); \
@@ -591,7 +742,8 @@ retry:
 
   WCHAR *pchars = (WCHAR *) scratch;
   unsigned int chars_len = 0;
-  for (unsigned int i = 0; i < buffer->len; i++) {
+  for (unsigned int i = 0; i < buffer->len; i++)
+  {
     hb_codepoint_t c = buffer->info[i].codepoint;
     buffer->info[i].utf16_index() = chars_len;
     if (likely (c < 0x10000))
@@ -607,6 +759,20 @@ retry:
   ALLOCATE_ARRAY (WCHAR, wchars, chars_len);
   ALLOCATE_ARRAY (WORD, log_clusters, chars_len);
   ALLOCATE_ARRAY (SCRIPT_CHARPROP, char_props, chars_len);
+
+  if (num_features)
+  {
+    /* Need log_clusters to assign features. */
+    chars_len = 0;
+    for (unsigned int i = 0; i < buffer->len; i++)
+    {
+      hb_codepoint_t c = buffer->info[i].codepoint;
+      unsigned int cluster = buffer->info[i].cluster;
+      log_clusters[chars_len++] = cluster;
+      if (c >= 0x10000 && c < 0x110000)
+	log_clusters[chars_len++] = cluster; /* Surrogates. */
+    }
+  }
 
   /* On Windows, we don't care about alignment...*/
   unsigned int glyphs_size = scratch_size / (sizeof (WORD) +
@@ -659,23 +825,58 @@ retry:
 
 #undef MAX_ITEMS
 
-  int *range_char_counts = NULL;
-  TEXTRANGE_PROPERTIES **range_properties = NULL;
-  int range_count = 0;
-  if (num_features) {
-    /* TODO setup ranges */
-  }
-
   OPENTYPE_TAG language_tag = hb_uint32_swap (hb_ot_tag_from_language (buffer->props.language));
+  hb_auto_array_t<TEXTRANGE_PROPERTIES*> range_properties;
+  hb_auto_array_t<int> range_char_counts;
 
   unsigned int glyphs_offset = 0;
   unsigned int glyphs_len;
   bool backward = HB_DIRECTION_IS_BACKWARD (buffer->props.direction);
-  for (unsigned int j = 0; j < item_count; j++)
+  for (unsigned int i = 0; i < item_count; i++)
   {
-    unsigned int i = backward ? item_count - 1 - j : j;
     unsigned int chars_offset = items[i].iCharPos;
     unsigned int item_chars_len = items[i + 1].iCharPos - chars_offset;
+
+    if (num_features)
+    {
+      range_properties.shrink (0);
+      range_char_counts.shrink (0);
+
+      range_record_t *last_range = &range_records[0];
+
+      for (unsigned int k = chars_offset; k < chars_offset + item_chars_len; k++)
+      {
+	range_record_t *range = last_range;
+	while (log_clusters[k] < range->index_first)
+	  range--;
+	while (log_clusters[k] > range->index_last)
+	  range++;
+	if (!range_properties.len ||
+	    &range->props != range_properties[range_properties.len - 1])
+	{
+	  TEXTRANGE_PROPERTIES **props = range_properties.push ();
+	  int *c = range_char_counts.push ();
+	  if (unlikely (!props || !c))
+	  {
+	    range_properties.shrink (0);
+	    range_char_counts.shrink (0);
+	    break;
+	  }
+	  *props = &range->props;
+	  *c = 1;
+	}
+	else
+	{
+	  range_char_counts[range_char_counts.len - 1]++;
+	}
+
+	last_range = range;
+      }
+    }
+
+    /* Asking for glyphs in logical order circumvents at least
+     * one bug in Uniscribe. */
+    items[i].a.fLogicalOrder = true;
 
   retry_shape:
     hr = funcs->ScriptShapeOpenType (font_data->hdc,
@@ -683,9 +884,9 @@ retry:
 				     &items[i].a,
 				     script_tags[i],
 				     language_tag,
-				     range_char_counts,
-				     range_properties,
-				     range_count,
+				     range_char_counts.array,
+				     range_properties.array,
+				     range_properties.len,
 				     wchars + chars_offset,
 				     item_chars_len,
 				     glyphs_size - glyphs_offset,
@@ -725,9 +926,9 @@ retry:
 				     &items[i].a,
 				     script_tags[i],
 				     language_tag,
-				     range_char_counts,
-				     range_properties,
-				     range_count,
+				     range_char_counts.array,
+				     range_properties.array,
+				     range_properties.len,
 				     wchars + chars_offset,
 				     log_clusters + chars_offset,
 				     char_props + chars_offset,
@@ -741,6 +942,14 @@ retry:
 				     NULL);
     if (unlikely (FAILED (hr)))
       FAIL ("ScriptPlaceOpenType() failed: 0x%08xL", hr);
+
+    if (DEBUG_ENABLED (UNISCRIBE))
+      fprintf (stderr, "Item %d RTL %d LayoutRTL %d LogicalOrder %d ScriptTag %c%c%c%c\n",
+	       i,
+	       items[i].a.fRTL,
+	       items[i].a.fLayoutRTL,
+	       items[i].a.fLogicalOrder,
+	       HB_UNTAG (hb_uint32_swap (script_tags[i])));
 
     glyphs_offset += glyphs_len;
   }
@@ -756,15 +965,9 @@ retry:
     uint32_t *p = &vis_clusters[log_clusters[buffer->info[i].utf16_index()]];
     *p = MIN (*p, buffer->info[i].cluster);
   }
-  if (!backward) {
-    for (unsigned int i = 1; i < glyphs_len; i++)
-      if (vis_clusters[i] == -1)
-	vis_clusters[i] = vis_clusters[i - 1];
-  } else {
-    for (int i = glyphs_len - 2; i >= 0; i--)
-      if (vis_clusters[i] == -1)
-	vis_clusters[i] = vis_clusters[i + 1];
-  }
+  for (unsigned int i = 1; i < glyphs_len; i++)
+    if (vis_clusters[i] == -1)
+      vis_clusters[i] = vis_clusters[i - 1];
 
 #undef utf16_index
 
@@ -798,12 +1001,14 @@ retry:
 
     /* TODO vertical */
     pos->x_advance = info->mask;
-    pos->x_offset = info->var1.u32;
+    pos->x_offset = backward ? -info->var1.u32 : info->var1.u32;
     pos->y_offset = info->var2.u32;
   }
+
+  if (backward)
+    hb_buffer_reverse (buffer);
 
   /* Wow, done! */
   return true;
 }
-
 

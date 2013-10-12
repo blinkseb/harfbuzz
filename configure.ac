@@ -1,6 +1,6 @@
 AC_PREREQ([2.64])
 AC_INIT([HarfBuzz],
-        [0.9.19],
+        [0.9.22],
         [http://bugs.freedesktop.org/enter_bug.cgi?product=harfbuzz],
         [harfbuzz],
         [http://harfbuzz.org/])
@@ -52,8 +52,16 @@ m4_define([hb_libtool_current],
 HB_LIBTOOL_VERSION_INFO=hb_libtool_current:hb_libtool_revision:hb_libtool_age
 AC_SUBST(HB_LIBTOOL_VERSION_INFO)
 
-dnl GOBJECT_INTROSPECTION_CHECK([0.9.0])
-dnl GTK_DOC_CHECK([1.15],[--flavour no-tmpl])
+# Documentation
+have_gtk_doc=false
+m4_ifdef([GTK_DOC_CHECK], [
+GTK_DOC_CHECK([1.15],[--flavour no-tmpl])
+	if test "x$enable_gtk_doc" = xyes; then
+		have_gtk_doc=true
+	fi
+], [
+	AM_CONDITIONAL([ENABLE_GTK_DOC], false)
+])
 
 # Functions and headers
 AC_CHECK_FUNCS(atexit mprotect sysconf getpagesize mmap isatty)
@@ -120,14 +128,6 @@ AM_CONDITIONAL(HAVE_OT, $have_ot)
 
 dnl ===========================================================================
 
-have_hb_old=false
-if $have_hb_old; then
-	AC_DEFINE(HAVE_HB_OLD, 1, [Have Old HarfBuzz backend])
-fi
-AM_CONDITIONAL(HAVE_HB_OLD, $have_hb_old)
-
-dnl ===========================================================================
-
 AC_ARG_WITH(glib,
 	[AS_HELP_STRING([--with-glib=@<:@yes/no/auto@:>@],
 			[Use glib @<:@default=auto@:>@])],,
@@ -144,9 +144,18 @@ if $have_glib; then
 fi
 AM_CONDITIONAL(HAVE_GLIB, $have_glib)
 
+dnl ===========================================================================
+
+AC_ARG_WITH(gobject,
+	[AS_HELP_STRING([--with-gobject=@<:@yes/no/auto@:>@],
+			[Use gobject @<:@default=auto@:>@])],,
+	[with_gobject=no])
 have_gobject=false
-if $have_glib; then
-	PKG_CHECK_MODULES(GOBJECT, gobject-2.0 glib-2.0 >= 2.16, have_gobject=true, :)
+if test "x$with_gobject" = "xyes" -o "x$with_gobject" = "xauto"; then
+	PKG_CHECK_MODULES(GOBJECT, gobject-2.0 glib-2.0, have_gobject=true, :)
+fi
+if test "x$with_gobject" = "xyes" -a "x$have_gobject" != "xtrue"; then
+	AC_MSG_ERROR([gobject support requested but gobject-2.0 / glib-2.0 not found])
 fi
 if $have_gobject; then
 	AC_DEFINE(HAVE_GOBJECT, 1, [Have gobject2 library])
@@ -154,6 +163,25 @@ if $have_gobject; then
 	AC_SUBST(GLIB_MKENUMS)
 fi
 AM_CONDITIONAL(HAVE_GOBJECT, $have_gobject)
+
+dnl ===========================================================================
+
+
+dnl ===========================================================================
+# Gobject-Introspection
+have_introspection=false
+m4_ifdef([GOBJECT_INTROSPECTION_CHECK], [
+	if $have_gobject; then
+		GOBJECT_INTROSPECTION_CHECK([1.32.0])
+		if test "x$found_introspection" = xyes; then
+			have_introspection=true
+		fi
+	else
+		AM_CONDITIONAL([HAVE_INTROSPECTION], false)
+	fi
+], [
+	AM_CONDITIONAL([HAVE_INTROSPECTION], false)
+])
 
 dnl ===========================================================================
 
@@ -230,15 +258,6 @@ if $have_icu; then
 	AC_DEFINE(HAVE_ICU, 1, [Have ICU library])
 fi
 AM_CONDITIONAL(HAVE_ICU, $have_icu)
-
-dnl ==========================================================================
-
-have_icu_le=false
-dnl PKG_CHECK_MODULES(ICU_LE, icu-le icu-uc, have_icu_le=true, :)
-if $have_icu_le; then
-	AC_DEFINE(HAVE_ICU_LE, 1, [Have ICU Layout Engine library])
-fi
-AM_CONDITIONAL(HAVE_ICU_LE, $have_icu_le)
 
 dnl ==========================================================================
 
@@ -372,13 +391,14 @@ AC_CONFIG_FILES([
 Makefile
 src/Makefile
 src/hb-version.h
-src/hb-icu-le/Makefile
-src/hb-old/Makefile
 src/hb-ucdn/Makefile
 util/Makefile
 test/Makefile
 test/api/Makefile
 test/shaping/Makefile
+docs/Makefile
+docs/reference/Makefile
+docs/reference/version.xml
 ])
 
 AC_OUTPUT
@@ -401,9 +421,12 @@ Tools used for command-line utilities:
 Additional shapers (the more the better):
 	Graphite2:		${have_graphite2}
 
-Test / platform shapers (not normally needed):
+Platform shapers (not normally needed):
 	CoreText:		${have_coretext}
-	ICU Layout Engine:	${have_icu_le}
-	Old HarfBuzz:		${have_hb_old}
 	Uniscribe:		${have_uniscribe}
+
+Other features:
+	Documentation:		${have_gtk_doc}
+	GObject bindings:	${have_gobject}
+	Introspection:		${have_introspection}
 ])

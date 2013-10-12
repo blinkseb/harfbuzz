@@ -5,8 +5,6 @@ General fixes:
 
 - Return "safe-to-break" bit from shaping.
 
-- Disable 'vert' if 'vrt2' is available (eg. Motoya fonts with arrow chars).
-
 - Implement 'rand' feature.
 
 - mask propagation? (when ligation, "or" the masks).
@@ -29,11 +27,11 @@ API issues to fix before 1.0:
 
 - hb-ft load_flags issues.
 
-- get_glyph() / get_glyph_variant()?
-
 - Add pkg-config files for glue codes (harfbuzz-glib, etc)
 
 - 'const' for getter APIs? (use mutable internally)
+
+- Remove hb_ot_shape_glyphs_closure()?
 
 
 API additions
@@ -47,11 +45,9 @@ API additions
 
 - Add sanitize API (and a cached version, that saves result on blob user-data)
 
-- Add glib GBoxedType stuff and introspection
-
 - BCP 47 language handling / API (language_matches?)
 
-- Add hb_font_create_linear()?
+- Add hb_font_create_unscaled()?
 
 - Add query / enumeration API for aalt-like features?
 
@@ -65,7 +61,7 @@ API additions
 hb-view / hb-shape enhancements:
 ===============================
 
-- Add --width, --height, --auto-size, --align, etc?
+- Add --width, --height, --auto-size, --ink-box, --align, etc?
 
 
 Tests to write:

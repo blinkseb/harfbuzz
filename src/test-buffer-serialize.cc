@@ -61,7 +61,7 @@ main (int argc, char **argv)
     GMappedFile *mf = g_mapped_file_new (argv[1], false, NULL);
     font_data = g_mapped_file_get_contents (mf);
     len = g_mapped_file_get_length (mf);
-    destroy = (hb_destroy_func_t) g_mapped_file_unref;
+    destroy = (hb_destroy_func_t) g_mapped_file_free;
     user_data = (void *) mf;
     mm = HB_MEMORY_MODE_READONLY_MAY_MAKE_WRITABLE;
 #else
@@ -114,7 +114,7 @@ main (int argc, char **argv)
     hb_buffer_serialize_glyphs (buf, 0, hb_buffer_get_length (buf),
 				out, sizeof (out), NULL,
 				font, HB_BUFFER_SERIALIZE_FORMAT_JSON,
-				HB_BUFFER_SERIALIZE_FLAGS_DEFAULT);
+				HB_BUFFER_SERIALIZE_FLAG_DEFAULT);
     puts (out);
   }
 

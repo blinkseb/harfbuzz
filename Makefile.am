@@ -4,7 +4,7 @@ NULL =
 
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = src util test
+SUBDIRS = src util test docs
 
 EXTRA_DIST = \
 	autogen.sh \
@@ -46,9 +46,18 @@ $(srcdir)/ChangeLog:
 # Release engineering
 #
 
+DISTCHECK_CONFIGURE_FLAGS = \
+	--enable-gtk-doc \
+	--disable-doc-cross-references \
+	--with-gobject \
+	--enable-introspection \
+	$(NULL)
+
 # TODO: Copy infrastructure from cairo
 
+# TAR_OPTIONS is not set as env var for 'make dist'.  How to fix that?
 TAR_OPTIONS = --owner=0 --group=0
+
 dist-hook: dist-clear-sticky-bits
 # Clean up any sticky bits we may inherit from parent dir
 dist-clear-sticky-bits:
